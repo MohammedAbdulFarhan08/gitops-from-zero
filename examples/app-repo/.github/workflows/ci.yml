@@ -1,0 +1,142 @@
+# Example CI for an APPLICATION repo (e.g. payment-service), not for this repo.
+# Copy it into your app repo as .github/workflows/ci.yml and adjust the names.
+#
+#   develop -> build, push, deploy to dev
+#   uat     -> build, push, deploy to uat
+#   main    -> no build: promote the exact image UAT tested, write it to prod
+#
+# Needs these settings in the app repo (names are examples, use your own):
+#   vars.JFROG_HOST          e.g. myco.jfrog.io
+#   vars.JFROG_REGISTRY      e.g. myco.jfrog.io/docker-local
+#   vars.JFROG_PROD_REGISTRY e.g. myco.jfrog.io/docker-prod
+#   vars.JF_URL              e.g. https://myco.jfrog.io
+#   vars.JF_USER             JFrog user for docker login
+#   secrets.JF_ACCESS_TOKEN
+#   vars.GITOPS_APP_ID + secrets.GITOPS_APP_PRIVATE_KEY
+#                            GitHub App allowed to push to the GitOps repo
+#   vars.GITOPS_REPO         e.g. my-org/gitops-from-zero
+#   vars.GITOPS_REPO_NAME    e.g. gitops-from-zero
+
+name: ci
+
+on:
+  push:
+    branches: [develop, uat, main]
+
+permissions:
+  contents: read
+
+env:
+  SERVICE: ${{ github.event.repository.name }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run tests
+        run: echo "Replace with your test command (make test, npm test, ...)"
+
+  build-and-push:
+    # Prod never rebuilds. Only develop and uat produce new images.
+    if: github.ref_name != 'main'
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          base_version=$(cat VERSION 2>/dev/null || echo "0.1.0")
+          echo "tag=v${base_version}-${GITHUB_REF_NAME}-$(date -u +%Y%m%d.%H%M%S)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.JFROG_HOST }}
+          username: ${{ vars.JF_USER }}
+          password: ${{ secrets.JF_ACCESS_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          push: true
+          tags: ${{ vars.JFROG_REGISTRY }}/${{ env.SERVICE }}:${{ steps.tag.outputs.tag }}
+
+      # Add your image scan step here (Trivy, Xray, ...) before the deploy job runs.
+
+  deploy:
+    needs: [test, build-and-push]
+    # Runs after build-and-push on develop/uat, and straight after tests on main.
+    if: always() && needs.test.result == 'success' && (needs.build-and-push.result == 'success' || github.ref_name == 'main')
+    runs-on: ubuntu-latest
+    # One deploy per service and branch at a time, in commit order, so an older
+    # build can never overwrite a newer tag. Different services still run in parallel.
+    concurrency:
+      group: gitops-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      - name: Map branch to environment
+        id: env
+        run: |
+          case "$GITHUB_REF_NAME" in
+            develop) echo "env=dev"  >> "$GITHUB_OUTPUT" ;;
+            uat)     echo "env=uat"  >> "$GITHUB_OUTPUT" ;;
+            main)    echo "env=prod" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Get a short-lived token from the GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.GITOPS_APP_ID }}
+          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ vars.GITOPS_REPO_NAME }}
+
+      - name: Check out the GitOps repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.GITOPS_REPO }}
+          ref: main
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Install kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: "5.4.3"
+
+      - name: Set up JFrog CLI
+        if: github.ref_name == 'main'
+        uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ vars.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
+
+      - name: Pick the tag to deploy
+        id: pick
+        run: |
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            # Prod: take whatever UAT is running right now...
+            tag=$(yq '.images[0].newTag' "overlays/uat/${SERVICE}/kustomization.yaml")
+            # ...and copy that exact image (same digest) into the prod registry.
+            # docker-local / docker-prod are example Artifactory repo names.
+            jf rt docker-promote "${SERVICE}" docker-local docker-prod \
+              --source-tag "${tag}" --copy
+            echo "image=${{ vars.JFROG_PROD_REGISTRY }}/${SERVICE}" >> "$GITHUB_OUTPUT"
+          else
+            tag="${{ needs.build-and-push.outputs.image_tag }}"
+            echo "image=${{ vars.JFROG_REGISTRY }}/${SERVICE}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Update the image tag (rebase and retry)
+        env:
+          SOURCE_REF: ${{ github.repository }}@${{ github.sha }}
+        run: |
+          git config user.name  "gitops-bot[bot]"
+          git config user.email "gitops-bot[bot]@users.noreply.github.com"
+          scripts/update-image-tag.sh "${{ steps.env.outputs.env }}" "${SERVICE}" \
+            "${{ steps.pick.outputs.image }}" "${{ steps.pick.outputs.tag }}"

@@ -1,0 +1,10 @@
+# Keep at least two pods up during node drains and rolling updates in prod.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sample-app
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sample-app
