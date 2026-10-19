@@ -1,9 +1,9 @@
 # One ApplicationSet per environment. It creates an ArgoCD Application for
-# every folder under overlays/dev/, so adding a service means adding a folder.
+# every folder under platform-apps/overlays/uat/, so adding a service means adding a folder.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: dev
+  name: uat
   namespace: argocd
 spec:
   goTemplate: true
@@ -13,12 +13,12 @@ spec:
         repoURL: https://github.com/MohammedAbdulFarhan08/gitops-from-zero.git
         revision: main
         directories:
-          - path: overlays/dev/*
+          - path: platform-apps/overlays/uat/*
   template:
     metadata:
-      name: "dev-{{.path.basename}}"
+      name: "uat-{{.path.basename}}"
       labels:
-        app.kubernetes.io/environment: dev
+        app.kubernetes.io/environment: uat
     spec:
       project: default
       source:
@@ -27,7 +27,7 @@ spec:
         path: "{{.path.path}}"
       destination:
         server: https://kubernetes.default.svc
-        namespace: "{{.path.basename}}-dev"
+        namespace: "{{.path.basename}}-uat"
       syncPolicy:
         # Dev and UAT: ArgoCD applies every change in Git on its own,
         # deletes what was removed from Git, and reverts manual edits.

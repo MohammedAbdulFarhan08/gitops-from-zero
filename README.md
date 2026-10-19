@@ -8,7 +8,7 @@ It is the companion repo to my article series *GitOps From Zero*, based on a set
 
 ## What you get
 
-- **One repo for every service's deployment config**, with a `base` per service and an overlay per environment.
+- **One repo for every service's deployment config**, all under `platform-apps/`: a `base` per service and an overlay per environment.
 - **ApplicationSets** that create an ArgoCD Application for each folder. Adding a service means adding a folder, with no ArgoCD YAML to write.
 - **Auto sync for dev and UAT, manual sync for prod.** Prod changes show up as `OutOfSync` and wait for a person to approve them.
 - **A tag-update script that survives parallel pipelines.** Forty services pushing to one repo at the same time do not lose updates.
@@ -21,15 +21,15 @@ It is the companion repo to my article series *GitOps From Zero*, based on a set
 feature → develop → uat → main
             │        │      │
             ▼        ▼      ▼
-           dev      uat    prod     (folders under overlays/)
+           dev      uat    prod     (folders under platform-apps/overlays/)
           auto     auto   manual    (ArgoCD sync)
 ```
 
 1. A developer merges into `develop` in an **app repo**.
 2. That repo's CI builds and scans the image and pushes it to the registry.
-3. CI runs `scripts/update-image-tag.sh`, which changes one line in `overlays/dev/<service>/kustomization.yaml` in **this** repo.
+3. CI runs `scripts/update-image-tag.sh`, which changes one line in `platform-apps/overlays/dev/<service>/kustomization.yaml` in **this** repo.
 4. ArgoCD sees the commit and rolls out the new image.
-5. Promotion to UAT works the same way. Promotion to prod copies the image UAT is running (same digest) and writes that tag to `overlays/prod/`. ArgoCD then waits for a manual sync.
+5. Promotion to UAT works the same way. Promotion to prod copies the image UAT is running (same digest) and writes that tag to `platform-apps/overlays/prod/`. ArgoCD then waits for a manual sync.
 
 ![Environment flows](docs/images/environment-flows.png)
 
@@ -39,16 +39,17 @@ The CI pipeline never talks to the cluster. It only writes to Git, so it never n
 
 ```text
 .
-├── base/
-│   └── sample-app/            # what every environment shares
-├── overlays/
-│   ├── dev/sample-app/        # image tag, replicas, env-specific settings
-│   ├── uat/sample-app/
-│   └── prod/sample-app/       # + PodDisruptionBudget
-├── apps/
-│   ├── dev/applicationset.yaml    # auto sync
-│   ├── uat/applicationset.yaml    # auto sync
-│   └── prod/applicationset.yaml   # manual sync
+├── platform-apps/                 # everything ArgoCD deploys
+│   ├── base/
+│   │   └── sample-app/            # what every environment shares
+│   ├── overlays/
+│   │   ├── dev/sample-app/        # image tag, replicas, env-specific settings
+│   │   ├── uat/sample-app/
+│   │   └── prod/sample-app/       # + PodDisruptionBudget
+│   └── apps/
+│       ├── dev/applicationset.yaml    # auto sync
+│       ├── uat/applicationset.yaml    # auto sync
+│       └── prod/applicationset.yaml   # manual sync
 ├── scripts/
 │   └── update-image-tag.sh    # rebase-and-retry tag update, used by app CI
 ├── examples/
@@ -63,7 +64,7 @@ The CI pipeline never talks to the cluster. It only writes to Git, so it never n
 
 You need [kind](https://kind.sigs.k8s.io/), `kubectl` and a fork of this repo.
 
-1. **Fork this repo**, then replace the repo URL in the three `apps/*/applicationset.yaml` files with your fork's URL.
+1. **Fork this repo**, then replace the repo URL in the three `platform-apps/apps/*/applicationset.yaml` files with your fork's URL.
 
 2. **Create a cluster and install ArgoCD:**
 
@@ -78,7 +79,7 @@ You need [kind](https://kind.sigs.k8s.io/), `kubectl` and a fork of this repo.
 3. **Create the three environments:**
 
    ```bash
-   kubectl apply -f apps/dev/ -f apps/uat/ -f apps/prod/
+   kubectl apply -f platform-apps/apps/dev/ -f platform-apps/apps/uat/ -f platform-apps/apps/prod/
    ```
 
 4. **Open the ArgoCD UI:**
@@ -91,13 +92,14 @@ You need [kind](https://kind.sigs.k8s.io/), `kubectl` and a fork of this repo.
 
    Open https://localhost:8080. `dev-sample-app` and `uat-sample-app` sync on their own. `prod-sample-app` stays `OutOfSync` until you press **Sync**: that is the prod gate.
 
-5. **Try a deploy.** Change `newTag` in `overlays/dev/sample-app/kustomization.yaml`, commit and push to your fork. ArgoCD picks it up within about three minutes (or instantly with a webhook, see below).
+5. **Try a deploy.** Change `newTag` in `platform-apps/overlays/dev/sample-app/kustomization.yaml`, commit and push to your fork. ArgoCD picks it up within about three minutes (or instantly with a webhook, see below).
 
 > For the demo, all three environments run as namespaces in one cluster. In a real setup each environment has its own cluster and its own ArgoCD, which is how the original system works.
 
 ## Adding a service
 
 ```bash
+cd platform-apps
 cp -r base/sample-app base/payment
 for env in dev uat prod; do cp -r overlays/$env/sample-app overlays/$env/payment; done
 # rename sample-app -> payment inside the new folders, set the image, commit
@@ -105,7 +107,7 @@ for env in dev uat prod; do cp -r overlays/$env/sample-app overlays/$env/payment
 
 The ApplicationSets find the new folders and create `dev-payment`, `uat-payment` and `prod-payment` on their own.
 
-**Naming convention:** the image placeholder in `base/<service>/deployment.yaml` has the same name as the service folder. `update-image-tag.sh` relies on it.
+**Naming convention:** the image placeholder in `platform-apps/base/<service>/deployment.yaml` has the same name as the service folder. `update-image-tag.sh` relies on it.
 
 ## The tag-update script
 
@@ -121,7 +123,7 @@ Two builds of the *same* service can still finish out of order, so the example C
 
 ![Prod gate](docs/images/prod-gate.png)
 
-`apps/prod/applicationset.yaml` has no `automated` sync policy. In the original setup, a prod sync also required an approved Change Request (ServiceNow), a booked maintenance window and a named on-call engineer. Rollback is a Git revert of the tag, followed by a sync.
+`platform-apps/apps/prod/applicationset.yaml` has no `automated` sync policy. In the original setup, a prod sync also required an approved Change Request (ServiceNow), a booked maintenance window and a named on-call engineer. Rollback is a Git revert of the tag, followed by a sync.
 
 ## Validate locally
 
@@ -137,7 +139,7 @@ Needs `kustomize` 5.x and `kubeconform`.
 
 This repo is a starting point. Before running it for real:
 
-- [ ] Protect `main`: pull requests only, two approvals, CODEOWNERS required for `overlays/prod/`.
+- [ ] Protect `main`: pull requests only, two approvals, CODEOWNERS required for `platform-apps/overlays/prod/`.
 - [ ] Use a **GitHub App** (not a personal token) for the CI bot, scoped to this one repo.
 - [ ] Add a **webhook** from this repo to ArgoCD so syncs start instantly instead of every ~3 minutes.
 - [ ] Make image tags **immutable** in your registry, or pin by digest.

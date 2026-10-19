@@ -6,7 +6,7 @@
 # same time, so every attempt starts from the latest remote state, re-applies
 # the edit and pushes. A rejected push simply retries; nothing is lost.
 #
-# Convention: the image placeholder in base/<service>/deployment.yaml has the
+# Convention: the image placeholder in platform-apps/base/<service>/deployment.yaml has the
 # same name as the service folder (base uses `image: sample-app`).
 #
 # Ordering: this script guarantees no update is lost, not that two builds of
@@ -37,7 +37,7 @@ IMAGE=$3
 TAG=$4
 BRANCH=${GITOPS_BRANCH:-main}
 MAX_RETRIES=${MAX_RETRIES:-5}
-OVERLAY="overlays/${ENV_NAME}/${SERVICE}"
+OVERLAY="platform-apps/overlays/${ENV_NAME}/${SERVICE}"
 
 case "$ENV_NAME" in
   dev|uat|prod) ;;

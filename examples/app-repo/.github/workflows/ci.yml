@@ -120,7 +120,7 @@ jobs:
         run: |
           if [ "$GITHUB_REF_NAME" = "main" ]; then
             # Prod: take whatever UAT is running right now...
-            tag=$(yq '.images[0].newTag' "overlays/uat/${SERVICE}/kustomization.yaml")
+            tag=$(yq '.images[0].newTag' "platform-apps/overlays/uat/${SERVICE}/kustomization.yaml")
             # ...and copy that exact image (same digest) into the prod registry.
             # docker-local / docker-prod are example Artifactory repo names.
             jf rt docker-promote "${SERVICE}" docker-local docker-prod \

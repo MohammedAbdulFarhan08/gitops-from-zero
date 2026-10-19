@@ -1,4 +1,4 @@
 # Anything that changes production needs a review from the release owners.
 # Swap in your team, e.g. @my-org/release-managers.
-/overlays/prod/  @MohammedAbdulFarhan08
-/apps/prod/      @MohammedAbdulFarhan08
+/platform-apps/overlays/prod/  @MohammedAbdulFarhan08
+/platform-apps/apps/prod/      @MohammedAbdulFarhan08

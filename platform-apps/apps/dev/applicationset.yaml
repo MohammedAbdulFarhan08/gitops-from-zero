@@ -1,9 +1,9 @@
 # One ApplicationSet per environment. It creates an ArgoCD Application for
-# every folder under overlays/prod/, so adding a service means adding a folder.
+# every folder under platform-apps/overlays/dev/, so adding a service means adding a folder.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: prod
+  name: dev
   namespace: argocd
 spec:
   goTemplate: true
@@ -13,12 +13,12 @@ spec:
         repoURL: https://github.com/MohammedAbdulFarhan08/gitops-from-zero.git
         revision: main
         directories:
-          - path: overlays/prod/*
+          - path: platform-apps/overlays/dev/*
   template:
     metadata:
-      name: "prod-{{.path.basename}}"
+      name: "dev-{{.path.basename}}"
       labels:
-        app.kubernetes.io/environment: prod
+        app.kubernetes.io/environment: dev
     spec:
       project: default
       source:
@@ -27,10 +27,12 @@ spec:
         path: "{{.path.path}}"
       destination:
         server: https://kubernetes.default.svc
-        namespace: "{{.path.basename}}-prod"
+        namespace: "{{.path.basename}}-dev"
       syncPolicy:
-        # Prod: no `automated` block on purpose. ArgoCD shows the new tag as
-        # OutOfSync and waits for the release manager to press Sync after the
-        # Change Request is approved.
+        # Dev and UAT: ArgoCD applies every change in Git on its own,
+        # deletes what was removed from Git, and reverts manual edits.
+        automated:
+          prune: true
+          selfHeal: true
         syncOptions:
           - CreateNamespace=true
