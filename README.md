@@ -1,8 +1,10 @@
 # GitOps From Zero
 
-A working GitOps setup for many microservices across **dev, UAT and prod**: GitHub Actions builds the image, Kustomize describes each environment, and ArgoCD deploys whatever Git says.
+**A deploy tool the whole team dreaded, turned into one-commit releases for ~40 microservices on Amazon EKS.** This is the real setup behind that move: GitHub Actions builds the image, Kustomize describes each environment, and ArgoCD deploys whatever Git says.
 
-It is the companion repo to my article series *GitOps From Zero*, based on a setup I designed for roughly 40 microservices on Amazon EKS. Clone it, point it at a cluster, and you have the same flow running in about ten minutes.
+📖 **Read the story:** [Developers Hated Their Deployment Tool. So I Rebuilt CI/CD From Scratch With ArgoCD](https://levelup.gitconnected.com/developers-hated-their-deployment-tool-so-i-rebuilt-ci-cd-from-scratch-with-argocd-970cdab64e82) — part 1 of the *GitOps From Zero* series.
+
+Clone it, point it at a cluster, and the same flow is running in about ten minutes.
 
 ![Architecture](docs/images/architecture.png)
 
@@ -151,6 +153,10 @@ This repo is a starting point. Before running it for real:
 You don't need a big-bang cutover. Keep your current pipeline, add the tag-update step at the end, and let both deploy paths run side by side. Move services one at a time and switch the old path off once each one is healthy under ArgoCD.
 
 ![Running old and new side by side](docs/images/dual-run-migration.png)
+
+## Found this useful?
+
+If it helped or saved you some time, a ⭐ on the repo means a lot — and it helps other engineers find it too.
 
 ## License
 
